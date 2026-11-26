@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SLOPE-SENSE — Live Ground Data</title>
+<style>
+  :root{
+    --bg:#0b1220; --card:#111c30; --card2:#0f1a2b; --line:#1d2b45;
+    --txt:#e6eefc; --dim:#8fa6c4; --accent:#7dd3fc;
+    --n:#22c55e; --w:#eab308; --a:#f97316; --i:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);padding:16px;
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  a{color:var(--accent)}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:12px}
+  h1{font-size:18px;margin:0;letter-spacing:3px;color:var(--accent);font-weight:700}
+  .sub{font-size:11.5px;color:var(--dim);margin-top:3px}
+  .pill{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:20px;
+    font-size:12px;font-weight:700;background:#1b2a44;color:var(--dim)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+  .pill.live{background:#0d3320;color:#86efac}
+  .pill.live .dot{background:var(--n);box-shadow:0 0 8px var(--n)}
+  .pill.err{background:#3a1414;color:#fca5a5}
+  .pill.err .dot{background:var(--i)}
+  .pill.demo{background:#3a2c10;color:#fcd34d}
+  .pill.demo .dot{background:var(--w)}
+
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);
+    border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+  input[type=text]{background:#0d1627;border:1px solid #24395c;color:var(--txt);
+    border-radius:8px;padding:9px 12px;font-size:13px;width:190px;font-family:ui-monospace,monospace}
+  input[type=text]:focus{outline:none;border-color:#3b82f6}
+  button{background:#1b2a44;color:var(--txt);border:1px solid #2b405f;border-radius:8px;
+    padding:9px 15px;font-size:12.5px;font-weight:600;cursor:pointer;transition:.15s}
+  button:hover{background:#24395c}
+  button.primary{background:#1d4ed8;border-color:#3b82f6}
+  button.primary:hover{background:#2563eb}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .lbl{font-size:11.5px;color:var(--dim)}
+
+  .banner{border-radius:13px;padding:14px 18px;margin-bottom:12px;font-weight:700;
+    font-size:15px;letter-spacing:.5px;background:#16233a;color:var(--dim);
+    border:1px solid var(--line);display:flex;justify-content:space-between;
+    align-items:center;gap:12px;flex-wrap:wrap}
+  .banner .big{font-size:20px;letter-spacing:2px}
+  .banner .meta{font-size:11.5px;font-weight:500;color:var(--dim);letter-spacing:0}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+  .card h2{margin:0 0 10px;font-size:10.5px;letter-spacing:1.6px;color:var(--dim);
+    text-transform:uppercase;font-weight:700}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:9px}
+  .kpi{background:var(--card2);border-radius:10px;padding:10px 11px}
+  .kpi .v{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+  .kpi .k{font-size:9.5px;color:var(--dim);letter-spacing:.5px;text-transform:uppercase;margin-top:2px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  td{padding:5px 0;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  tr:last-child td{border-bottom:0}
+  td.k{color:var(--dim)}
+  td.v{text-align:right;font-weight:600}
+  svg{width:100%;height:auto;display:block}
+  .bar-track{height:7px;border-radius:4px;background:#1b2a44;overflow:hidden;margin-top:7px}
+  .bar-track>i{display:block;height:100%;width:0;background:var(--n);transition:.35s}
+  #log{max-height:150px;overflow:auto;font-family:ui-monospace,monospace;font-size:11.5px;
+    line-height:1.65;color:var(--dim)}
+  #log div{border-bottom:1px solid #16233a;padding:2px 0}
+  .warn{display:none;background:#3a2c10;border:1px solid #7c5a10;color:#fcd34d;
+    border-radius:11px;padding:11px 14px;font-size:12px;margin-bottom:12px;line-height:1.55}
+  .note{font-size:11px;color:#6b8cae;line-height:1.6;margin-top:9px}
+  .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>SLOPE-SENSE</h1>
+    <div class="sub">Live data from the slope · reads <code id="urlLabel">http://…/json</code></div>
+  </div>
+  <div id="status" class="pill"><span class="dot"></span><span id="statusText">Not connected</span></div>
+</header>
+
+<div id="mixed" class="warn">
+  ⚠️ <b>This page is loaded over HTTPS, but the ESP32 speaks plain HTTP.</b>
+  Browsers block that mix. Open this file directly from disk (double-click it), or serve it
+  over <code>http://</code> — do not keep it on an https:// address while talking to the device.
+</div>
+
+<div class="bar">
+  <span class="lbl">Device IP</span>
+  <input type="text" id="ip" placeholder="192.168.1.42" value="">
+  <button id="btnConnect" class="primary">Connect</button>
+  <button id="btnDisconnect" disabled>Disconnect</button>
+  <span class="lbl">poll</span>
+  <select id="rate" style="background:#0d1627;color:var(--txt);border:1px solid #24395c;border-radius:8px;padding:8px">
+    <option value="500">0.5 s</option>
+    <option value="1000" selected>1 s</option>
+    <option value="2000">2 s</option>
+  </select>
+  <button id="btnDemo">Demo data</button>
+  <button id="btnCsv">⬇ Export CSV</button>
+</div>
+
+<div class="banner" id="banner">
+  <div>
+    <div class="big" id="stateBig">OFFLINE</div>
+    <div class="meta" id="stateMeta">waiting for the device — enter its IP and press Connect</div>
+  </div>
+  <div class="meta" id="etaBig"></div>
+</div>
+
+<div class="grid">
+
+  <div>
+    <div class="card" style="margin-bottom:12px">
+      <h2>Sensors on the ground</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="v" id="k_tofa">—</div><div class="k">ToF A gap</div></div>
+        <div class="kpi"><div class="v" id="k_tofb">—</div><div class="k">ToF B gap</div></div>
+        <div class="kpi"><div class="v" id="k_soila">—</div><div class="k">Soil A · 30 cm</div></div>
+        <div class="kpi"><div class="v" id="k_soilb">—</div><div class="k">Soil B · 60 cm</div></div>
+        <div class="kpi"><div class="v" id="k_tilt">—</div><div class="k">Tilt</div></div>
+        <div class="kpi"><div class="v" id="k_vib">—</div><div class="k">Tremor</div></div>
+      </div>
+      <div class="note" id="faultNote"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <h2>Feature vector → on-device ML</h2>
+      <table>
+        <tr><td class="k">θ mean (soil moisture)</td><td class="v" id="f0">—</td></tr>
+        <tr><td class="k">dθ/dt</td><td class="v" id="f1">—</td></tr>
+        <tr><td class="k">θ probe spread</td><td class="v" id="f2">—</td></tr>
+        <tr><td class="k">crack velocity</td><td class="v" id="f3">—</td></tr>
+        <tr><td class="k">cumulative displacement</td><td class="v" id="f4">—</td></tr>
+        <tr><td class="k">tilt change</td><td class="v" id="f5">—</td></tr>
+        <tr><td class="k">micro-tremor RMS</td><td class="v" id="f6">—</td></tr>
+      </table>
+      <div class="note" id="modelNote">Model state is computed on the ESP32 — the browser only displays it.</div>
+    </div>
+
+    <div class="card">
+      <h2>Link</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="v" id="k_rssi">—</div><div class="k">WiFi RSSI</div></div>
+        <div class="kpi"><div class="v" id="k_up">—</div><div class="k">Uptime</div></div>
+        <div class="kpi"><div class="v" id="k_age">—</div><div class="k">Last packet</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card" style="margin-bottom:12px">
+      <h2>Geotechnical state</h2>
+      <div class="kpis">
+        <div class="kpi">
+          <div class="v" id="k_fos">—</div><div class="k">Factor of safety</div>
+          <div class="bar-track"><i id="fosBar"></i></div>
+        </div>
+        <div class="kpi"><div class="v" id="k_eta">—</div><div class="k">Predicted failure</div></div>
+        <div class="kpi"><div class="v" id="k_r2">—</div><div class="k">1/v fit R²</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <h2>Crack displacement &amp; velocity</h2>
+      <svg viewBox="0 0 460 160" id="chart1"></svg>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <h2>Inverse velocity → predicted failure time</h2>
+      <svg viewBox="0 0 460 160" id="chart2"></svg>
+      <div class="note" id="ivNote">1/v falls in a straight line toward zero as failure approaches.
+        Extrapolating it gives the collapse time before it happens.</div>
+    </div>
+
+    <div class="card">
+      <h2>Event log</h2>
+      <div id="log"><div>no events yet</div></div>
+      <div class="note">
+        <span class="sw" style="background:var(--n)"></span>NORMAL
+        <span class="sw" style="background:var(--w);margin-left:8px"></span>WATCH
+        <span class="sw" style="background:var(--a);margin-left:8px"></span>WARNING
+        <span class="sw" style="background:var(--i);margin-left:8px"></span>IMMINENT
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const NAME = ['NORMAL','WATCH','WARNING','IMMINENT'];
+const COL  = ['#22c55e','#eab308','#f97316','#ef4444'];
+const FEAT = ['θ mean','dθ/dt','θ spread','crack velocity','cum. displacement',
+              'tilt change','tremor RMS'];
+
+let timer = null, mode = 'idle', ip = '', pollMs = 1000;
+let lastPacket = 0, samples = [], hist = { t:[], disp:[], vel:[], inv:[] };
+let lastState = -1, latest = null, demoPhase = 0;
+
+const $ = id => document.getElementById(id);
+const fmt = (v,d) => (v===undefined||v===null||isNaN(v)) ? '—' : (+v).toFixed(d);
+
+/* ------------------------------------------------ mixed content check ---- */
+if (location.protocol === 'https:') $('mixed').style.display = 'block';
+
+/* ------------------------------------------------ persistence ----------- */
+try { $('ip').value = localStorage.getItem('slope_ip') || ''; } catch(e) {}
+$('rate').value = '1000';
+
+/* ------------------------------------------------ status helpers -------- */
+function setStatus(kind, text) {
+  const el = $('status');
+  el.className = 'pill' + (kind ? ' ' + kind : '');
+  $('statusText').textContent = text;
+}
+function setUrlLabel() {
+  $('urlLabel').textContent = ip ? ('http://' + ip + '/json') : 'http://…/json';
+}
+
+/* ------------------------------------------------ connect / disconnect -- */
+async function fetchOnce() {
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 1800);
+  try {
+    const r = await fetch('http://' + ip + '/json?_=' + Date.now(),
+                          { cache:'no-store', signal:ctl.signal });
+    clearTimeout(to);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    ingest(d);
+    setStatus('live', 'LIVE · ' + ip);
+  } catch (e) {
+    clearTimeout(to);
+    setStatus('err', 'No response — retrying');
+    $('stateBig').textContent = 'NO DATA';
+    $('stateMeta').textContent = 'device unreachable at http://' + ip + '  ('+e.message+')';
+  }
+}
+
+$('btnConnect').onclick = () => {
+  ip = $('ip').value.trim().replace(/^https?:\/\//,'').replace(/\/.*$/,'');
+  if (!ip) { setStatus('err','Enter the IP shown on the serial monitor'); return; }
+  try { localStorage.setItem('slope_ip', ip); } catch(e) {}
+  setUrlLabel();
+  mode = 'live';
+  hist = { t:[], disp:[], vel:[], inv:[] };
+  samples = []; lastState = -1;
+  $('btnConnect').disabled = true; $('btnDisconnect').disabled = false; $('btnDemo').disabled = true;
+  setStatus('live','Connecting…');
+  fetchOnce();
+  clearInterval(timer);
+  timer = setInterval(fetchOnce, pollMs);
+};
+
+$('btnDisconnect').onclick = () => {
+  clearInterval(timer); timer = null; mode = 'idle';
+  $('btnConnect').disabled = false; $('btnDisconnect').disabled = true; $('btnDemo').disabled = false;
+  setStatus('', 'Disconnected');
+  $('stateBig').textContent = 'OFFLINE';
+  $('stateMeta').textContent = 'disconnected';
+};
+
+/* ------------------------------------------------ demo mode ------------- */
+/* generates plausible values so you can show the interface without the board */
+function demoStep() {
+  demoPhase += 1;
+  const p = demoPhase;
+  const wet = Math.min(1, Math.max(0, (p - 20) / 120));          // 0 dry → 1 saturated
+  const soilA = 14 + 22 * wet + Math.sin(p/7) * 0.4;
+  const soilB = 12 + 18 * wet + Math.cos(p/9) * 0.5;
+  const vel   = 0.03 + 26 * Math.pow(wet, 3.2) * (1 + 0.02*Math.sin(p/3));
+  const disp  = Math.pow(wet, 3) * 40;
+  const fos   = 1.55 - 0.62 * wet;
+  const tilt  = 0.02 + 1.8 * Math.pow(wet, 4);
+  const vib   = 0.0035 + 0.006 * wet;
+  const state = fos < 0.95 ? 3 : fos < 1.03 ? 2 : (wet > 0.45 ? 1 : 0);
+  const eta   = wet > 0.75 ? Math.max(0.2, 9 - 8*wet) : -1;
+  ingest({
+    ip:'DEMO', uptime:p, state, model:state, fos, eta, r2: wet>0.7?0.93:0.4,
+    rssi:-58, soilA, soilB, distA:500+disp, distB:480+disp*0.95,
+    tilt, faultA:0, faultB:0, faultIMU:0,
+    features:[ (soilA+soilB)/2, 0.04*wet, Math.abs(soilA-soilB), vel, disp, tilt, vib ]
+  });
+  if (p > 200) demoPhase = 0;
+}
+
+$('btnDemo').onclick = () => {
+  ip=''; setUrlLabel();
+  mode = 'demo'; demoPhase = 0;
+  hist = { t:[], disp:[], vel:[], inv:[] }; samples = []; lastState = -1;
+  $('btnConnect').disabled = true; $('btnDemo').disabled = true; $('btnDisconnect').disabled = false;
+  setStatus('demo','DEMO DATA (not live)');
+  clearInterval(timer);
+  timer = setInterval(demoStep, 400);
+};
+
+/* ------------------------------------------------ data ingestion -------- */
+function ingest(d) {
+  lastPacket = Date.now();
+  latest = d;
+
+  const st = Math.max(0, Math.min(3, d.state|0));
+  const b = $('banner');
+  b.style.background = COL[st] + '22';
+  b.style.borderColor = COL[st] + '66';
+  $('stateBig').textContent = NAME[st];
+  $('stateBig').style.color = COL[st];
+  $('stateMeta').textContent = 'model=' + NAME[Math.max(0,Math.min(3,d.model|0))] +
+    ' · FoS ' + fmt(d.fos,2) + ' · v ' + fmt(d.features[3],2) + ' mm/h';
+  $('etaBig').textContent = (d.eta > 0 && d.r2 > 0.8)
+    ? ('⚠ failure predicted in ~' + fmt(d.eta,1) + ' h') : '';
+
+  /* sensor cards */
+  $('k_tofa').textContent = fmt(d.distA,1) + ' mm';
+  $('k_tofb').textContent = fmt(d.distB,1) + ' mm';
+  $('k_soila').textContent = fmt(d.soilA,1) + ' %';
+  $('k_soilb').textContent = fmt(d.soilB,1) + ' %';
+  $('k_tilt').textContent = fmt(d.tilt,2) + '°';
+  $('k_vib').textContent = fmt(d.features[6],4) + ' g';
+
+  const faults = [];
+  if (d.faultA) faults.push('ToF A');
+  if (d.faultB) faults.push('ToF B');
+  if (d.faultIMU) faults.push('IMU');
+  $('faultNote').innerHTML = faults.length
+    ? '⚠️ <b style="color:#fca5a5">Sensor fault:</b> ' + faults.join(', ') +
+      ' — the node is running degraded (that is by design).'
+    : '';
+
+  /* feature table */
+  for (let i = 0; i < 7; i++) $('f'+i).textContent = fmt(d.features[i], i===6?4:2) +
+    ['', ' %/h', '', ' mm/h', ' mm', ' °', ' g'][i];
+  $('modelNote').textContent = 'ML output on device: ' + NAME[Math.max(0,Math.min(3,d.model|0))];
+
+  /* geotech */
+  $('k_fos').textContent = fmt(d.fos,2);
+  const fosPct = Math.min(100, Math.max(0, (d.fos/2)*100));
+  $('fosBar').style.width = fosPct + '%';
+  $('fosBar').style.background = d.fos<1 ? COL[3] : d.fos<1.05 ? COL[2] : d.fos<1.15 ? COL[1] : COL[0];
+  $('k_eta').textContent = (d.eta>0) ? ('~'+fmt(d.eta,1)+' h') : 'stable';
+  $('k_r2').textContent  = fmt(d.r2,2);
+
+  /* link */
+  $('k_rssi').textContent = (d.rssi||0) + ' dBm';
+  const up = d.uptime|0;
+  $('k_up').textContent = up>3600 ? (up/3600).toFixed(1)+' h'
+                        : up>60   ? Math.floor(up/60)+' min' : up+' s';
+
+  /* history */
+  const t = Date.now();
+  hist.t.push(t);
+  hist.disp.push(d.features[4]);
+  hist.vel.push(d.features[3]);
+  hist.inv.push(d.features[3] > 0.05 ? 1/d.features[3] : null);
+  [ 't','disp','vel','inv' ].forEach(k => { if (hist[k].length > 240) hist[k].shift(); });
+
+  samples.push({
+    time:new Date(t).toISOString(), state:NAME[st], fos:d.fos, eta:d.eta, r2:d.r2,
+    soilA:d.soilA, soilB:d.soilB, distA:d.distA, distB:d.distB, tilt:d.tilt,
+    f0:d.features[0], f1:d.features[1], f2:d.features[2], f3:d.features[3],
+    f4:d.features[4], f5:d.features[5], f6:d.features[6]
+  });
+  if (samples.length > 5000) samples.shift();
+
+  /* event log */
+  if (st !== lastState) {
+    if (lastState !== -1) addLog(NAME[lastState] + ' → ' + NAME[st] +
+      '   (FoS ' + fmt(d.fos,2) + ', v ' + fmt(d.features[3],2) + ' mm/h' +
+      (d.eta>0 && d.r2>0.8 ? ', ETA ' + fmt(d.eta,1) + ' h' : '') + ')', COL[st]);
+    lastState = st;
+  }
+
+  drawCharts();
+  tickAge();
+}
+
+function addLog(text, color) {
+  const box = $('log');
+  if (box.firstChild && box.firstChild.textContent === 'no events yet') box.innerHTML = '';
+  const d = document.createElement('div');
+  d.textContent = new Date().toLocaleTimeString() + '  ' + text;
+  if (color) d.style.color = color;
+  box.prepend(d);
+  while (box.children.length > 60) box.removeChild(box.lastChild);
+}
+
+function tickAge() {
+  if (!lastPacket) return;
+  const s = Math.round((Date.now() - lastPacket)/1000);
+  $('k_age').textContent = s + ' s ago';
+}
+
+/* ------------------------------------------------ SVG line chart -------- */
+function drawChart(svg, series, opts) {
+  const W=460, H=160, pad={l:40, r:8, t:10, b:20};
+  const iw=W-pad.l-pad.r, ih=H-pad.t-pad.b;
+  const vals = series.flatMap(s => s.data.filter(v => v!==null && !isNaN(v)));
+  if (vals.length < 2) {
+    svg.innerHTML = '<text x="230" y="80" fill="#4a6480" font-size="11" text-anchor="middle">'+
+                    (opts.empty||'no data yet')+'</text>';
+    return;
+  }
+  let y0 = Math.min(...vals), y1 = Math.max(...vals);
+  if (y1 - y0 < 1e-9) { y1 = y0 + 1; }
+  const span = y1 - y0;
+  let out = '';
+  for (let i=0;i<=3;i++){
+    const y = pad.t + ih*i/3;
+    out += `<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#1d2b45"/>`;
+    out += `<text x="${pad.l-6}" y="${y+3.5}" fill="#6b8cae" font-size="9" text-anchor="end">${
+      (y1 - span*i/3).toFixed(opts.dec===undefined?1:opts.dec)}</text>`;
+  }
+  for (const s of series) {
+    const d = s.data; if (d.length < 2) continue;
+    let path='';
+    for (let i=0;i<d.length;i++){
+      if (d[i]===null || isNaN(d[i])) continue;
+      const x = pad.l + iw*i/(d.length-1);
+      const y = pad.t + ih*(1-(d[i]-y0)/span);
+      path += (path?'L':'M') + x.toFixed(1) + ' ' + y.toFixed(1) + ' ';
+    }
+    out += `<path d="${path}" fill="none" stroke="${s.color}" stroke-width="${s.w||2}" ${
+      s.dash?'stroke-dasharray="5 4"':''}/>`;
+  }
+  let lx = pad.l + 2;
+  for (const s of series) {
+    if (!s.label) continue;
+    out += `<rect x="${lx}" y="${H-11}" width="8" height="8" rx="2" fill="${s.color}"/>`;
+    out += `<text x="${lx+11}" y="${H-4}" fill="#8fa6c4" font-size="9.5">${s.label}</text>`;
+    lx += 18 + s.label.length*5.1;
+  }
+  svg.innerHTML = out;
+}
+
+function drawCharts() {
+  const dseg = hist.disp.slice(-120), vseg = hist.vel.slice(-120);
+  const dmax = Math.max(1, ...dseg.filter(v_=>!isNaN(v_)));
+  const vmax = Math.max(0.1, ...vseg.filter(v_=>!isNaN(v_)));
+  drawChart($('chart1'), [
+    { data:dseg, color:'#38bdf8', label:'displacement (mm)' },
+    { data:vseg.map(v => v/vmax*dmax), color:'#f472b6', label:'velocity (scaled)', dash:true }
+  ], { empty:'waiting for displacement data' });
+
+  const iv = hist.inv.slice(-40);
+  drawChart($('chart2'), [
+    { data:iv, color:'#a78bfa', label:'1/v (h/mm)' }
+  ], { dec:2, empty:'velocity too small to invert — slope is quiet' });
+
+  if (latest) {
+    $('ivNote').innerHTML = (latest.eta > 0 && latest.r2 > 0.6)
+      ? `Linear fit R² = <b>${fmt(latest.r2,2)}</b> → failure predicted in
+         <b style="color:${COL[3]}">${fmt(latest.eta,1)} hours</b>.`
+      : `1/v falls in a straight line toward zero as failure approaches.
+         Extrapolating it gives the collapse time before it happens.`;
+  }
+}
+
+/* ------------------------------------------------ CSV export ------------ */
+$('btnCsv').onclick = () => {
+  if (!samples.length) { alert('No samples collected yet — connect first.'); return; }
+  const cols = Object.keys(samples[0]);
+  const rows = [cols.join(',')].concat(samples.map(s => cols.map(c => s[c]).join(',')));
+  const blob = new Blob([rows.join('\n')], { type:'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'slope_sense_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+/* ------------------------------------------------ housekeeping ---------- */
+$('rate').onchange = e => {
+  pollMs = +e.target.value;
+  if (mode === 'live') { clearInterval(timer); timer = setInterval(fetchOnce, pollMs); }
+};
+setInterval(tickAge, 1000);
+setUrlLabel();
+</script>
+</body>
+</html>
